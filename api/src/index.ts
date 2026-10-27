@@ -107,7 +107,7 @@ app.get("/v1/openapi.json", (c) =>
         "SaaS edge for MapleSpike MCP + REST. 198 modules, 164 MCP tools, SHA-256 provenance on every record.",
     },
     servers: [
-      { url: "https://quill-api.j-kroeker.workers.dev", description: "Cloudflare Workers stub" },
+      { url: "https://edge.maplespike.ca", description: "Cloudflare Workers edge (custom domain)" },
       { url: "https://api.maplespike.ca", description: "Production (pending CF API Token + custom domain attach)" },
     ],
     paths: {
