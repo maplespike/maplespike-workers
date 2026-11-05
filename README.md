@@ -2,7 +2,7 @@
 
 Cloudflare Workers edge stub for Maplespike Quill’s SaaS API (`quill-api`).
 
-This repo holds the Hono Worker under `api/` that will front `quill.maplespike.ca` / `api.maplespike.ca` once Cloudflare bindings are wired. It is the SaaS edge twin of the self-hosted Quill API; today it is a **stub** (health, modules list placeholder, OpenAPI stub) with no D1/KV/R2 bindings active.
+This repo holds the Hono Worker under `api/`: an optional SaaS edge twin of the self-hosted Quill API. It is **not** on `quill.maplespike.ca` or `mcp.maplespike.ca` today; both hostnames are served by the self-hosted k3s stack through the Cloudflare tunnel, and attaching the Worker to any hostname would be a separate, future decision. Today it is a **stub** (health, modules list placeholder, OpenAPI stub) with no D1/KV/R2 bindings active.
 
 ## Layout
 
@@ -24,7 +24,7 @@ Local:
 npm run dev      # wrangler dev
 ```
 
-Custom domains (`api.maplespike.ca`, `mcp.maplespike.ca`) are noted in `wrangler.toml` and need Cloudflare zone permissions at attach time.
+Custom domains noted in `wrangler.toml` are placeholders only and are not attached; `quill.maplespike.ca` and `mcp.maplespike.ca` stay on the self-hosted k3s stack via the tunnel. Attaching any domain would need Cloudflare zone permissions and an explicit decision first.
 
 ## Secrets and bindings (paths only)
 
