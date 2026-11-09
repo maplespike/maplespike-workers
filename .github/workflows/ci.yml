@@ -1,0 +1,67 @@
+# Typecheck (and tests, when api/ has them) for the Worker package.
+#
+# Node comes from the lockfile: wrangler in api/package-lock.json declares
+# engines.node >=22.0.0. api/package.json has no engines field.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  # The merge gate dispatches this workflow on main after a squash merge.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  ci:
+    name: ci
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: api
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: api/package-lock.json
+
+      # wrangler 4.156 declares an optional peer on @cloudflare/workers-types
+      # ^5.20261023.1. This package locks workers-types 4.x, so a strict peer
+      # check makes npm ci exit ERESOLVE. --legacy-peer-deps installs the
+      # locked tree.
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
+
+      - name: Typecheck
+        run: npx --no-install tsc --noEmit
+
+      - name: Test
+        run: |
+          set -euo pipefail
+          script="$(npm pkg get scripts.test)"
+          if [[ "$script" != "{}" ]]; then
+            npm test
+            exit 0
+          fi
+          mapfile -t tests < <(find . -type f \
+            \( -name '*.test.ts' -o -name '*.spec.ts' -o -name '*.test.js' -o -name '*.spec.js' -o -name '*.test.mjs' -o -name '*.spec.mjs' \) \
+            ! -path './node_modules/*')
+          if (( ${#tests[@]} > 0 )); then
+            echo "::error::api/ has test files and no test script."
+            printf '%s\n' "${tests[@]}"
+            exit 1
+          fi
+          echo "No test script and no test files in api/. Skipping tests."
