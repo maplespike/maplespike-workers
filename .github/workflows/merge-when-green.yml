@@ -470,9 +470,40 @@ jobs:
           jq -r '.body // ""' <<<"$META" > "$BODY_FILE"
 
           echo "::notice::Squash-merging PR #${PR_NUMBER}."
-          GH_TOKEN="$GATE_TOKEN" gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch \
+          # --- gate-merge-retry begin ---
+          # Treat 'Base branch was modified' like the behind path
+          # (update-branch, merge-style, never rebase). After a successful
+          # merge, a --delete-branch 404 'Reference does not exist' is success.
+          # Other merge failures still fail the job.
+          set +e
+          MERGE_OUT=$(GH_TOKEN="$GATE_TOKEN" gh pr merge "$PR_NUMBER" --repo "$GH_REPO" --squash --delete-branch \
             --match-head-commit "$HEAD_SHA" \
-            --body-file "$BODY_FILE"
+            --body-file "$BODY_FILE" 2>&1)
+          MERGE_RC=$?
+          set -e
+          if [[ -n "$MERGE_OUT" ]]; then
+            printf '%s\n' "$MERGE_OUT"
+          fi
+          if [[ "$MERGE_RC" -ne 0 ]]; then
+            if grep -qiF 'Base branch was modified' <<<"$MERGE_OUT"; then
+              echo "::notice::base branch was modified while merging #${PR_NUMBER}; updating branch once so the next check completion re-arms the gate."
+              if ! GH_TOKEN="$GATE_TOKEN" gh pr update-branch "$PR_NUMBER" --repo "$GH_REPO"; then
+                fail_unknown "PR #${PR_NUMBER} base branch was modified and the branch update failed."
+              fi
+              exit 0
+            fi
+            if grep -qiF 'Reference does not exist' <<<"$MERGE_OUT"; then
+              MERGED_AT=$(GH_TOKEN="$GATE_TOKEN" gh pr view "$PR_NUMBER" --repo "$GH_REPO" --json mergedAt --jq '.mergedAt // empty' || true)
+              if [[ -n "${MERGED_AT:-}" ]]; then
+                echo "::notice::merged #${PR_NUMBER}; head ref already deleted (delete-branch 404)."
+              else
+                echo "::error::gh pr merge failed for #${PR_NUMBER} (not a post-merge delete-branch 404)."; exit 1
+              fi
+            else
+              echo "::error::gh pr merge failed for #${PR_NUMBER}."; exit 1
+            fi
+          fi
+          # --- gate-merge-retry end ---
           echo "::notice::Merged #${PR_NUMBER} via the ready-to-merge gate."
 
           echo "Dispatching CI on main after merge."
