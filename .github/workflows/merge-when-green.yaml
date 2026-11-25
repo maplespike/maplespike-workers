@@ -289,5 +289,34 @@ jobs:
             exit 0
           fi
 
-          GH_TOKEN="$GATE_TOKEN" gh pr merge "$PR" --repo "$GH_REPO" --squash --match-head-commit "$SHA"
+          # --- gate-merge-retry begin ---
+          # 'Base branch was modified' means main moved between the behind
+          # check and the merge. Treat it like the behind path: merge-style
+          # update-branch once (never rebase) and exit 0; the new CI run
+          # re-arms the gate. A 'Reference does not exist' after a merge that
+          # did land is success. Any other merge failure fails the job.
+          set +e
+          MERGE_OUT=$(GH_TOKEN="$GATE_TOKEN" gh pr merge "$PR" --repo "$GH_REPO" --squash --match-head-commit "$SHA" 2>&1)
+          MERGE_RC=$?
+          set -e
+          [[ -z "$MERGE_OUT" ]] || printf '%s\n' "$MERGE_OUT"
+          if [[ "$MERGE_RC" -ne 0 ]]; then
+            if grep -qiF 'Base branch was modified' <<<"$MERGE_OUT"; then
+              if ! GH_TOKEN="$GATE_TOKEN" gh api -X PUT "repos/$GH_REPO/pulls/$PR/update-branch" \
+                  -f expected_head_sha="$SHA" >/dev/null; then
+                echo "::error::#$PR: base branch was modified and update-branch failed."; exit 1
+              fi
+              note "#$PR: base branch was modified during the merge; merged $BASE into it (update-branch). The new CI run re-arms the gate."
+              exit 0
+            fi
+            if grep -qiF 'Reference does not exist' <<<"$MERGE_OUT"; then
+              MERGED_AT=$(GH_TOKEN="$GATE_TOKEN" gh pr view "$PR" --repo "$GH_REPO" --json mergedAt --jq '.mergedAt // empty' || true)
+              if [[ -n "${MERGED_AT:-}" ]]; then
+                note "squash-merged #$PR at $SHA (head ref already gone)."
+                exit 0
+              fi
+            fi
+            echo "::error::gh pr merge failed for #$PR."; exit 1
+          fi
           note "squash-merged #$PR at $SHA."
+          # --- gate-merge-retry end ---
